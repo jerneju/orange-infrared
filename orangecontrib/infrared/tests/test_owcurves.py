@@ -294,7 +294,7 @@ class TestOWCurves(WidgetTest):
 
     def test_open_selection(self):
         # saved selection in the file should be reloaded
-        self.widget.curveplot.saved_selected_indices = set([0])
+        self.widget.curveplot.selection_group_saved = [(0, 1)]
         self.send_signal("Data", self.iris)
         out = self.get_output("Selection")
         self.assertEqual(out[0], self.iris[0])
