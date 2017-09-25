@@ -466,6 +466,8 @@ class CurvePlot(QWidget, OWComponent):
 
         # prepare interface according to the new context
         self.parent.contextAboutToBeOpened.connect(lambda x: self.init_interface_data(x[0]))
+        # when loading settings convert selections into another format
+        self.parent.contextOpened.connect(self.after_loading_saved_settings)
 
         actions = []
 
@@ -1199,7 +1201,6 @@ class OWCurves(OWWidget):
         self.Information.showing_sample.clear()
         self.Warning.no_x.clear()
         self.openContext(data)
-        self.curveplot.after_loading_saved_settings()
         self.curveplot.set_data(data)
         self.curveplot.update_view()
         if data is not None and not len(self.curveplot.data_x):
