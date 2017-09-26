@@ -4,7 +4,7 @@ import pyqtgraph as pg
 from Orange.widgets.tests.base import WidgetTest
 from Orange.data import Table, Domain, ContinuousVariable
 from orangecontrib.infrared.widgets.owcurves import OWCurves, MAX_INSTANCES_DRAWN, \
-    PlotCurvesItem
+    PlotCurvesItem, ANNOTATED_DATA_SIGNAL_NAME
 from orangecontrib.infrared.data import getx
 from orangecontrib.infrared.widgets.line_geometry import intersect_curves, \
     distance_line_segment
@@ -111,14 +111,14 @@ class TestOWCurves(WidgetTest):
             out = self.get_output("Selection")
             self.assertIsNone(out, None)
             out = self.get_output("Data")
-            sa = out.transform(Orange.data.Domain([out.domain["Selected"]]))
+            sa = out.transform(Orange.data.Domain([out.domain["Selection group"]]))
             np.testing.assert_equal(sa.X, 0)
             self.select_diagonal()
             out = self.get_output("Selection")
             self.assertEqual(len(data), len(out))
             out = self.get_output("Data")
             self.assertEqual(len(data), len(out))
-            sa = out.transform(Orange.data.Domain([out.domain["Selected"]]))
+            sa = out.transform(Orange.data.Domain([out.domain["Selection group"]]))
             np.testing.assert_equal(sa.X, 1)
         self.widget.hide()
 

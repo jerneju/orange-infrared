@@ -542,9 +542,9 @@ class ImagePlot(QWidget, OWComponent):
                 else:
                     datai = Integrate(methods=imethod, limits=[[l3, l3]])(self.data)
 
-                if self.parent.curveplot.selected_indices:
+                if np.any(self.parent.curveplot.selection_group):
                     # curveplot can have a subset of curves on the input> match IDs
-                    ind = list(self.parent.curveplot.selected_indices)[0]
+                    ind = np.flatnonzero(self.parent.curveplot.selection_group)[0]
                     dind = self.data_ids[self.parent.curveplot.data[ind].id]
                     di = datai.domain.attributes[0].compute_value.draw_info(self.data[dind:dind+1])
                 d = datai.X[:, 0]
@@ -762,9 +762,9 @@ class OWHyper(OWWidget):
             selected = self.data[indices]
             self.send("Selection", selected if selected else None)
             if selected:
-                self.curveplot.set_data(selected)
+                self.curveplot.set_data(selected, reset_selection=True)
             else:
-                self.curveplot.set_data(self.data)
+                self.curveplot.set_data(self.data, reset_selection=True)
         else:
             self.send("Selection", None)
             self.curveplot.set_data(None)

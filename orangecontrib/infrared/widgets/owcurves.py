@@ -5,7 +5,6 @@ import random
 import warnings
 import math
 from xml.sax.saxutils import escape
-from typing import Set
 
 from AnyQt.QtWidgets import QWidget, QGraphicsItem, QPushButton, QMenu, \
     QGridLayout, QAction, QVBoxLayout, QApplication, QWidgetAction, QLabel, \
@@ -36,10 +35,10 @@ from orangecontrib.infrared.data import getx
 from orangecontrib.infrared.widgets.line_geometry import \
     distance_curves, intersect_curves_chunked
 from orangecontrib.infrared.widgets.gui import lineEditFloatOrNone
+from orangecontrib.infrared.widgets.utils import pack_selection, unpack_selection
 
-from Orange.widgets.utils.annotated_data import (create_annotated_table,
-                                                 ANNOTATED_DATA_SIGNAL_NAME,
-                                                 get_next_name)
+from Orange.widgets.utils.annotated_data import (create_groups_table,
+                                                 ANNOTATED_DATA_SIGNAL_NAME)
 
 
 SELECT_SQUARE = 123
@@ -404,7 +403,7 @@ class CurvePlot(QWidget, OWComponent):
     feature_color = ContextSetting(None)
 
     invertX = Setting(False)
-    selected_indices = None  # Set[int]
+    selection_group = np.array([], dtype=np.uint8)
     selection_group_saved = Setting(None, schema_only=True)
     viewtype = Setting(INDIVIDUAL)
 
@@ -787,25 +786,37 @@ class CurvePlot(QWidget, OWComponent):
         self.range_e_y2.setPlaceholderText(("%0." + str(yd) + "f") % vr.bottom())
 
     def make_selection(self, data_indices, add=False):
-        selected_indices = self.selected_indices
-        oldids = selected_indices.copy()
         invd = self.sampled_indices_inverse
+        data_indices_set = set(data_indices if data_indices is not None else set())
+        redraw_curve_indices = set()
         if data_indices is None:
             if not add:
-                selected_indices.clear()
-                self.set_curve_pens([invd[a] for a in oldids if a in invd])
+                # remove all
+                redraw_curve_indices.update(
+                    icurve for idata, icurve in invd.items() if self.selection_group[idata])
+                self.selection_group *= 0
         else:
             if add:
-                selected_indices.update(data_indices)
-                self.set_curve_pens([invd[a] for a in data_indices if a in invd])
+                # add new
+                self.selection_group[data_indices] = 1
+                redraw_curve_indices.update(
+                    icurve for idata, icurve in invd.items() if idata in data_indices_set)
             else:
-                selected_indices.clear()
-                selected_indices.update(data_indices)
-                self.set_curve_pens([invd[a] for a in (oldids | selected_indices) if a in invd])
-        if self.select_at_least_1 and not selected_indices and len(self.data) > 0:  # no selection
-            selected_indices.update([0])
+                # remove all
+                redraw_curve_indices.update(
+                    icurve for idata, icurve in invd.items() if self.selection_group[idata])
+                self.selection_group *= 0
+                # add new
+                self.selection_group[data_indices] = 1
+                redraw_curve_indices.update(
+                    icurve for idata, icurve in invd.items() if idata in data_indices_set)
+                # TODO this can redraw needless curves (removed and then added to the same group)
+        if self.select_at_least_1 and not len(np.flatnonzero(self.selection_group)) \
+                and len(self.data) > 0:  # no selection
+            self.selection_group[0] = 1
             if 0 in invd:
-                self.set_curve_pens([invd[0]])
+                redraw_curve_indices.update([invd[0]])
+        self.set_curve_pens(redraw_curve_indices)
         self.selection_changed()
 
     def selection_changed(self):
@@ -883,7 +894,7 @@ class CurvePlot(QWidget, OWComponent):
     def set_curve_pen(self, idc):
         idcdata = self.sampled_indices[idc]
         insubset = self.subset_indices[idcdata]
-        inselected = self.selected_indices is not None and self.selection_type and idcdata in self.selected_indices
+        inselected = self.selection_type and self.selection_group[idcdata]
         have_subset = np.any(self.subset_indices)
         thispen = self.pen_subset if insubset or not have_subset else self.pen_normal
         if inselected:
@@ -1050,8 +1061,6 @@ class CurvePlot(QWidget, OWComponent):
         if self.data:
             ysall = []
             cinfo = []
-            selected_indices = np.full(len(self.data), False, dtype=bool)
-            selected_indices[list(self.selected_indices)] = True
             dsplit = self._split_by_color_value(self.data)
             for colorv, indices in dsplit.items():
                 for part in [None, "subset", "selection"]:
@@ -1059,7 +1068,7 @@ class CurvePlot(QWidget, OWComponent):
                         part_selection = indices
                         pen = self.pen_normal if np.any(self.subset_indices) else self.pen_subset
                     elif part == "selection" and self.selection_type:
-                        part_selection = indices & selected_indices
+                        part_selection = indices & (self.selection_group > 0)
                         pen = self.pen_selected
                     elif part == "subset":
                         part_selection = indices & self.subset_indices
@@ -1089,10 +1098,18 @@ class CurvePlot(QWidget, OWComponent):
         if self.rescale_next:
             self.plot.vb.autoRange()
 
-    def set_data(self, data):
-        if not self.selected_indices:  # either None or previously saved empty set
-            self.selected_indices = set()
+    def set_data(self, data, reset_selection=False):
+        if reset_selection:
+            self.selection_group = np.array([], dtype=np.uint8)
         if data is not None:
+            # make selection size equal to data size:
+            # - it can be smaller if saved as list and the last instance was not selected
+            # - it can be smaller or bigger if set_data is called without opening context
+            add_zeros = len(data) - len(self.selection_group)
+            if add_zeros > 0:
+                self.selection_group = np.append(self.selection_group, np.zeros(add_zeros, dtype=np.uint8))
+            else:
+                self.selection_group = self.selection_group[:len(data)].copy()
             if self.data:
                 self.rescale_next = not data.domain == self.data.domain
             else:
@@ -1158,23 +1175,18 @@ class CurvePlot(QWidget, OWComponent):
                 settings["selection_group_saved"] = [(a, 1) for a in settings["selected_indices"]]
 
     def after_loading_saved_settings(self):
-        if self.selection_group_saved is not None:
-            self.selected_indices = set(a for a, _ in self.selection_group_saved)
-        else:
-            self.selected_indices = None
+        self.selection_group = unpack_selection(self.selection_group_saved)
 
     def prepare_settings_for_saving(self):
-        if self.selected_indices:
-            self.selection_group_saved = [(a, 1) for a in self.selected_indices]
-        else:
-            self.selection_group_saved = None
+        self.selection_group_saved = pack_selection(self.selection_group)
 
 
 class OWCurves(OWWidget):
     name = "Spectra"
     inputs = [("Data", Orange.data.Table, 'set_data', Default),
               ("Data subset", Orange.data.Table, 'set_subset', Default)]
-    outputs = [("Selection", Orange.data.Table), ("Data", Orange.data.Table)]
+    outputs = [("Selection", Orange.data.Table),
+               (ANNOTATED_DATA_SIGNAL_NAME, Orange.data.Table)]
     icon = "icons/curves.svg"
     priority = 10
 
@@ -1214,11 +1226,15 @@ class OWCurves(OWWidget):
         self.curveplot.set_data_subset(data.ids if data else None)
 
     def selection_changed(self):
-        annotated = create_annotated_table(self.curveplot.data, sorted(self.curveplot.selected_indices))
-        self.send("Data", annotated)
+        # selection table
+        self.send(ANNOTATED_DATA_SIGNAL_NAME,
+                  create_groups_table(self.curveplot.data, self.curveplot.selection_group))
+        # selected elements
         selected = None
-        if self.curveplot.selected_indices and self.curveplot.data:
-            selected = self.curveplot.data[sorted(self.curveplot.selected_indices)]
+        if self.curveplot.data:
+            selection_indices = np.flatnonzero(self.curveplot.selection_group)
+            if len(selection_indices):
+                selected = self.curveplot.data[selection_indices]
         self.send("Selection", selected)
 
     @classmethod

@@ -7,6 +7,8 @@ from AnyQt.QtWidgets import (
     QMenu, QApplication, QAction, QDockWidget, QScrollArea
 )
 
+import numpy as np
+
 import Orange.data
 from Orange import preprocess
 from Orange.widgets.data.owpreprocess import (
@@ -189,9 +191,9 @@ class OWIntegrate(orangecontrib.infrared.widgets.owpreproc.OWPreprocess):
 
     def redraw_integral(self):
         dis = []
-        if self.curveplot.selected_indices and self.curveplot.data:
+        if np.any(self.curveplot.selection_group) and self.curveplot.data:
             # select data
-            ind = list(self.curveplot.selected_indices)[0]
+            ind = np.flatnonzero(self.curveplot.selection_group)[0]
             show = self.curveplot.data[ind:ind+1]
 
             previews = self.flow_view.preview_n()
